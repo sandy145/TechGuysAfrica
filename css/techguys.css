@@ -7,16 +7,24 @@ height: 100%;
 }
 .techguys-firstrow  .portfolio-item img{
 	height: 100%;
+	width: 100%;
 }
-
-
+/*a:focus, a:hover{
+	color: black;
+}
+*/
 .portfolio-item:hover{
 	opacity: 1;
 	background: rgba(254, 209, 54, 0.1);
 }
+
+@media screen  and (min-width: 987px){
 .techguys-firstrow  .portfolio-item.hero-img-1{
 	width: 50%;
 }
-.techguys-firstrow  .portfolio-item.hero-img-2, .techguys-firstrow  .portfolio-item.hero-img-3 {
+.techguys-firstrow  .portfolio-item.hero-img-2, 
+.techguys-firstrow  .portfolio-item.hero-img-3 {
 	width: 25%;
+}
+
 }
