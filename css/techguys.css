@@ -1,0 +1,22 @@
+.techguys-firstrow  .portfolio-item
+{
+padding-right: 0px;
+padding-left: 0px;
+height: 100%;
+
+}
+.techguys-firstrow  .portfolio-item img{
+	height: 100%;
+}
+
+
+.portfolio-item:hover{
+	opacity: 1;
+	background: rgba(254, 209, 54, 0.1);
+}
+.techguys-firstrow  .portfolio-item.hero-img-1{
+	width: 50%;
+}
+.techguys-firstrow  .portfolio-item.hero-img-2, .techguys-firstrow  .portfolio-item.hero-img-3 {
+	width: 25%;
+}
