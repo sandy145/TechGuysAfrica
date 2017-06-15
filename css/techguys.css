@@ -51,11 +51,11 @@ background-color: rgba(202,49,49,0.7);
     z-index: 1;
     position: relative;
 }
-.hero-text{
-font-size: 3.23529em;
+.hero-text {
+    font-size: 3.23529em;
     line-height: 1em;
     font-weight: 300;
-	color: #42a959;
+    color: #ff5552;
     font-family: Panton,sans-serif;
     font-weight: normal;
     position: relative;
