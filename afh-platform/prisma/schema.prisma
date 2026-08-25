@@ -1,0 +1,475 @@
+// Adult Family Home compliance platform — data model.
+//
+// Provider note: SQLite keeps local setup to zero steps. It has no native enum
+// or array support, so status/category columns are Strings constrained in
+// src/lib/constants.ts, and list-shaped columns hold JSON text. Both survive a
+// move to Postgres unchanged — only the datasource block below has to change.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Tenancy: one Home per licensed adult family home, users belong to a Home.
+// ---------------------------------------------------------------------------
+
+model Home {
+  id             String  @id @default(cuid())
+  name           String
+  licenseNumber  String?
+  addressLine1   String?
+  city           String?
+  county         String?
+  zip            String?
+  phone          String?
+
+  // Profile attributes below are what the rules engine reads to decide which
+  // requirements apply to this particular home.
+  bedCapacity        Int     @default(6)
+  residentCount      Int     @default(0)
+  // JSON array of specialty designations: "DEMENTIA" | "MENTAL_HEALTH" | "DEVELOPMENTAL_DISABILITIES"
+  specialties        String  @default("[]")
+  providerIsResident Boolean @default(false) // provider lives in the home
+  hasResidentManager Boolean @default(false)
+  employsStaff       Boolean @default(true)
+  servesMedicaid     Boolean @default(false)
+  usesNurseDelegation Boolean @default(false)
+  multipleFacilities Boolean @default(false)
+  licensedAt         DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users         User[]
+  residents     Resident[]
+  employees     Employee[]
+  documents     Document[]
+  formInstances FormInstance[]
+  subscriptions Subscription[]
+  citations     Citation[]
+
+  @@index([county])
+}
+
+model User {
+  id           String  @id @default(cuid())
+  email        String  @unique
+  passwordHash String
+  name         String
+  // "OWNER" | "ADMIN" | "STAFF"
+  role         String  @default("OWNER")
+  homeId       String?
+  home         Home?   @relation(fields: [homeId], references: [id], onDelete: SetNull)
+
+  createdAt   DateTime  @default(now())
+  lastLoginAt DateTime?
+
+  uploadedDocuments Document[]     @relation("UploadedBy")
+  createdForms      FormInstance[] @relation("CreatedBy")
+
+  @@index([homeId])
+}
+
+// ---------------------------------------------------------------------------
+// People the documentation is about.
+// ---------------------------------------------------------------------------
+
+model Resident {
+  id        String    @id @default(cuid())
+  homeId    String
+  home      Home      @relation(fields: [homeId], references: [id], onDelete: Cascade)
+  firstName String
+  lastName  String
+  dateOfBirth DateTime?
+  admittedAt  DateTime?
+  dischargedAt DateTime?
+  // Drives specialty-care and assessment requirements.
+  hasDementiaDiagnosis      Boolean @default(false)
+  hasMentalHealthDiagnosis  Boolean @default(false)
+  hasDevelopmentalDisability Boolean @default(false)
+  isMedicaid                Boolean @default(false)
+  selfAdministersMedication Boolean @default(false)
+  notes     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  documents     Document[]
+  formInstances FormInstance[]
+
+  @@index([homeId])
+}
+
+model Employee {
+  id        String  @id @default(cuid())
+  homeId    String
+  home      Home    @relation(fields: [homeId], references: [id], onDelete: Cascade)
+  firstName String
+  lastName  String
+  // "PROVIDER" | "ENTITY_REPRESENTATIVE" | "RESIDENT_MANAGER" | "CAREGIVER" | "SUBSTITUTE" | "VOLUNTEER" | "CONTRACTOR"
+  role      String  @default("CAREGIVER")
+  email     String?
+  phone     String?
+  hiredAt      DateTime?
+  terminatedAt DateTime?
+  credentialNumber String?  // WA DOH credential (HCA/CNA/NAR)
+  hasDirectResidentContact Boolean @default(true)
+  notes     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  documents     Document[]
+  formInstances FormInstance[]
+
+  @@index([homeId])
+}
+
+// ---------------------------------------------------------------------------
+// Document vault.
+// ---------------------------------------------------------------------------
+
+// Catalog of the kinds of records a home is expected to keep. Seeded, but
+// providers can add their own.
+model DocumentType {
+  id          String  @id @default(cuid())
+  code        String  @unique
+  name        String
+  description String?
+  // "HOME" | "RESIDENT" | "EMPLOYEE"
+  scope       String
+  // Free-text grouping used for binder tabs, e.g. "Resident Records".
+  category    String
+  wacCite     String?
+  // Null = does not expire. Otherwise months of validity from issue date.
+  renewalMonths Int?
+  // Days before expiry at which the item starts showing as "expiring".
+  warnDays      Int     @default(60)
+  isSystem      Boolean @default(false)
+  sortOrder     Int     @default(100)
+
+  documents  Document[]
+  ruleChecks RuleCheck[]
+
+  @@index([scope])
+}
+
+model Document {
+  id             String       @id @default(cuid())
+  homeId         String
+  home           Home         @relation(fields: [homeId], references: [id], onDelete: Cascade)
+  documentTypeId String
+  documentType   DocumentType @relation(fields: [documentTypeId], references: [id])
+
+  // Exactly one of these is set for RESIDENT/EMPLOYEE scoped docs; both null
+  // means the document belongs to the home itself.
+  residentId String?
+  resident   Resident? @relation(fields: [residentId], references: [id], onDelete: Cascade)
+  employeeId String?
+  employee   Employee? @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  title       String
+  fileName    String?
+  storageKey  String? // path under STORAGE_DIR; null for generated-form records
+  mimeType    String?
+  sizeBytes   Int?
+  issuedAt    DateTime?
+  expiresAt   DateTime?
+  notes       String?
+
+  // Set when this document was produced by the form generator rather than uploaded.
+  formInstanceId String?       @unique
+  formInstance   FormInstance? @relation(fields: [formInstanceId], references: [id], onDelete: SetNull)
+
+  uploadedById String?
+  uploadedBy   User?    @relation("UploadedBy", fields: [uploadedById], references: [id], onDelete: SetNull)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([homeId, documentTypeId])
+  @@index([residentId])
+  @@index([employeeId])
+  @@index([expiresAt])
+}
+
+// ---------------------------------------------------------------------------
+// Dynamic forms + signatures.
+// ---------------------------------------------------------------------------
+
+model FormTemplate {
+  id          String  @id @default(cuid())
+  code        String  @unique
+  title       String
+  description String?
+  category    String
+  wacCite     String?
+  // "HOME" | "RESIDENT" | "EMPLOYEE" — what the form is filled out about.
+  subjectType String  @default("RESIDENT")
+  // JSON array of field definitions; see src/lib/forms/types.ts
+  fieldsJson  String  @default("[]")
+  // Markdown-ish body with {{field_key}} tokens, rendered into the printable form.
+  bodyTemplate String  @default("")
+  // JSON array of signer roles, e.g. [{"key":"provider","label":"Provider","required":true}]
+  signersJson String  @default("[]")
+  // When completed, file the result under this document type.
+  documentTypeCode String?
+  isSystem    Boolean @default(true)
+  version     Int     @default(1)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  instances FormInstance[]
+}
+
+model FormInstance {
+  id         String       @id @default(cuid())
+  homeId     String
+  home       Home         @relation(fields: [homeId], references: [id], onDelete: Cascade)
+  templateId String
+  template   FormTemplate @relation(fields: [templateId], references: [id])
+
+  residentId String?
+  resident   Resident? @relation(fields: [residentId], references: [id], onDelete: Cascade)
+  employeeId String?
+  employee   Employee? @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  // "DRAFT" | "AWAITING_SIGNATURES" | "COMPLETED" | "VOIDED"
+  status   String @default("DRAFT")
+  // JSON object of field key -> value.
+  dataJson String @default("{}")
+  // Snapshot of the rendered body at completion time, so later template edits
+  // never rewrite an already-signed record.
+  renderedBody String?
+
+  effectiveAt DateTime?
+  completedAt DateTime?
+
+  createdById String?
+  createdBy   User?    @relation("CreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  signatures Signature[]
+  document   Document?
+
+  @@index([homeId, status])
+  @@index([residentId])
+  @@index([employeeId])
+}
+
+model Signature {
+  id             String       @id @default(cuid())
+  formInstanceId String
+  formInstance   FormInstance @relation(fields: [formInstanceId], references: [id], onDelete: Cascade)
+
+  signerKey   String // matches a signer role key on the template
+  signerLabel String
+  signerName  String?
+  signerEmail String?
+  // Base64 PNG of the drawn signature.
+  imageData   String?
+  typedName   String?
+  signedAt    DateTime?
+  ipAddress   String?
+  userAgent   String?
+  // Text the signer agreed to, stored verbatim for evidentiary value.
+  consentText String?
+
+  // Tokenized remote-signing link for family members who are not platform users.
+  accessToken String?   @unique
+  tokenExpiresAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([formInstanceId])
+}
+
+// ---------------------------------------------------------------------------
+// Regulations, rule checks, and update feed.
+// ---------------------------------------------------------------------------
+
+model Regulation {
+  id         String  @id @default(cuid())
+  cite       String  @unique // e.g. "WAC 388-76-10129"
+  title      String
+  subchapter String?
+  summary    String?
+  url        String?
+  effectiveAt DateTime?
+  isActive   Boolean @default(true)
+  // Set false on seeded entries whose text has not been checked against the
+  // official WAC. Surfaced in the UI so nobody mistakes a placeholder for law.
+  verified   Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  ruleChecks RuleCheck[]
+  updates    RegulatoryUpdate[]
+  citations  Citation[]
+
+  @@index([subchapter])
+}
+
+// A single machine-evaluable requirement derived from a regulation.
+model RuleCheck {
+  id           String     @id @default(cuid())
+  code         String     @unique
+  regulationId String?
+  regulation   Regulation? @relation(fields: [regulationId], references: [id], onDelete: SetNull)
+
+  title       String
+  description String?
+  // "CRITICAL" | "HIGH" | "MEDIUM" | "LOW"
+  severity    String @default("MEDIUM")
+
+  // How to evaluate. See src/lib/compliance/engine.ts.
+  // "HOME_DOCUMENT" | "PER_RESIDENT_DOCUMENT" | "PER_EMPLOYEE_DOCUMENT" | "PROFILE_FLAG"
+  checkType   String
+  documentTypeId String?
+  documentType   DocumentType? @relation(fields: [documentTypeId], references: [id], onDelete: SetNull)
+  // JSON predicate against the Home profile deciding whether this rule applies.
+  appliesWhenJson String @default("{}")
+  // JSON predicate against the subject (resident/employee) for per-subject checks.
+  subjectWhenJson String @default("{}")
+  // JSON options, e.g. {"flag":"hasDisasterPlan","equals":true} for PROFILE_FLAG,
+  // or {"withinDaysOfAdmission":30} for per-resident timing.
+  paramsJson  String @default("{}")
+
+  remediation String?
+  isActive    Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// A newsletter-worthy change: new WAC, amended WAC, DSHS policy letter, etc.
+model RegulatoryUpdate {
+  id      String @id @default(cuid())
+  title   String
+  summary String
+  body    String?
+  // "NEW_RULE" | "AMENDED_RULE" | "POLICY" | "GUIDANCE" | "ENFORCEMENT_TREND"
+  kind    String @default("AMENDED_RULE")
+  source  String?
+  url     String?
+  publishedAt DateTime @default(now())
+  effectiveAt DateTime?
+  // "CRITICAL" | "HIGH" | "MEDIUM" | "LOW"
+  severity    String @default("MEDIUM")
+
+  regulationId String?
+  regulation   Regulation? @relation(fields: [regulationId], references: [id], onDelete: SetNull)
+  // JSON array of RuleCheck codes this update introduces or changes, so the
+  // digest can tell each home whether it is already compliant.
+  ruleCheckCodesJson String @default("[]")
+
+  createdAt DateTime @default(now())
+
+  @@index([publishedAt])
+}
+
+// ---------------------------------------------------------------------------
+// Citation board (anonymous) + subscriptions.
+// ---------------------------------------------------------------------------
+
+model Citation {
+  id String @id @default(cuid())
+
+  // Author linkage is deliberately weak. homeId is kept ONLY when the poster
+  // opts into "check this against my home"; authorHash is a salted one-way
+  // digest used for rate limiting and letting an author edit their own post.
+  // Neither is ever exposed through the API. See src/lib/anon.ts.
+  homeId     String?
+  home       Home?   @relation(fields: [homeId], references: [id], onDelete: SetNull)
+  authorHash String
+
+  // Coarse, non-identifying context.
+  county        String?
+  bedSizeBucket String? // "1-4" | "5-6" | "7-8"
+  // "FULL_INSPECTION" | "COMPLAINT" | "FOLLOW_UP" | "CHANGE_OF_OWNERSHIP" | "OTHER"
+  surveyType    String  @default("FULL_INSPECTION")
+  // Quarter granularity only, to avoid pinpointing a specific survey.
+  citedQuarter  String? // e.g. "2026-Q1"
+
+  regulationId String?
+  regulation   Regulation? @relation(fields: [regulationId], references: [id], onDelete: SetNull)
+  wacCite      String?
+
+  // "NO_HARM" | "POTENTIAL_HARM" | "ACTUAL_HARM" | "IMMEDIATE_JEOPARDY"
+  severity       String  @default("NO_HARM")
+  summary        String
+  narrative      String?
+  correctiveAction String?
+  fineAmount     Int?
+  tagsJson       String  @default("[]")
+
+  // "PENDING" | "APPROVED" | "REJECTED"
+  status        String  @default("PENDING")
+  moderationNote String?
+  helpfulCount  Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  votes CitationVote[]
+
+  @@index([status, createdAt])
+  @@index([wacCite])
+  @@index([county])
+}
+
+model CitationVote {
+  id         String   @id @default(cuid())
+  citationId String
+  citation   Citation @relation(fields: [citationId], references: [id], onDelete: Cascade)
+  voterHash  String
+  createdAt  DateTime @default(now())
+
+  @@unique([citationId, voterHash])
+}
+
+model Subscription {
+  id     String  @id @default(cuid())
+  email  String
+  homeId String?
+  home   Home?   @relation(fields: [homeId], references: [id], onDelete: SetNull)
+  // JSON array of "CITATIONS" | "WAC_UPDATES" | "EXPIRY_DIGEST" | "COMPLIANCE_GAPS"
+  topicsJson String @default("[]")
+  // "WEEKLY" | "MONTHLY" | "IMMEDIATE"
+  frequency  String @default("WEEKLY")
+
+  verified          Boolean   @default(false)
+  verifyToken       String?   @unique
+  unsubscribeToken  String    @unique
+  lastSentAt        DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([email, homeId])
+}
+
+// Rendered digests. Delivery goes through src/lib/mailer.ts, which writes here
+// when no SMTP transport is configured, so nothing is silently dropped.
+model OutboxMessage {
+  id        String   @id @default(cuid())
+  toEmail   String
+  subject   String
+  bodyHtml  String
+  bodyText  String?
+  // "QUEUED" | "SENT" | "FAILED"
+  status    String   @default("QUEUED")
+  error     String?
+  kind      String   @default("DIGEST")
+  sentAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([status, createdAt])
+}
