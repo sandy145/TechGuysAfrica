@@ -63,9 +63,7 @@ export const SEED_FORM_TEMPLATES: SeedFormTemplate[] = [
       { key: "resident", label: "Resident", required: false, remote: true },
       { key: "representative", label: "Resident representative", required: false, remote: true },
     ],
-    body: `## Negotiated care plan
-
-**Resident:** {{resident_name}}
+    body: `**Resident:** {{resident_name}}
 **Home:** {{home_name}} · License {{home_license}}
 **Plan type:** {{plan_type}}
 **Prepared:** {{today}} · **Next review due:** {{review_date}}
@@ -140,9 +138,7 @@ This plan was negotiated with the resident and, where applicable, their represen
       { key: "resident", label: "Resident", required: false, remote: true },
       { key: "representative", label: "Resident representative", required: false, remote: true },
     ],
-    body: `## Acknowledgement of resident rights
-
-**Resident:** {{resident_name}}
+    body: `**Resident:** {{resident_name}}
 **Home:** {{home_name}} · {{home_address}} · {{home_phone}}
 
 I confirm that on **{{provided_date}}** I was given a copy of my rights as a resident of an adult family home, and that they were explained to me by **{{explained_by}}**.
@@ -187,9 +183,7 @@ I understand that I can raise a concern with the provider at any time without fe
       { key: "resident", label: "Resident", required: false, remote: true },
       { key: "representative", label: "Resident representative", required: false, remote: true },
     ],
-    body: `## Admission agreement and disclosure of services
-
-**Home:** {{home_name}} · License {{home_license}}
+    body: `**Home:** {{home_name}} · License {{home_license}}
 **Address:** {{home_address}} · **Phone:** {{home_phone}}
 **Resident:** {{resident_name}}
 **Admission date:** {{admission_date}} · **Room:** {{room}}
@@ -249,9 +243,7 @@ Signing below confirms that these terms were explained, that the resident or the
       { key: "provider", label: "Provider or resident manager", required: true },
       { key: "resident", label: "Resident", required: false, remote: true },
     ],
-    body: `## Medication self-administration assessment
-
-**Resident:** {{resident_name}}
+    body: `**Resident:** {{resident_name}}
 **Home:** {{home_name}}
 **Assessment date:** {{assessment_date}} · **Assessed by:** {{assessed_by}}
 
@@ -298,9 +290,7 @@ This assessment is reviewed at least annually and whenever the resident's condit
       { key: "employee", label: "Employee", required: true },
       { key: "provider", label: "Provider or resident manager", required: true },
     ],
-    body: `## Employee orientation record
-
-**Employee:** {{employee_name}}
+    body: `**Employee:** {{employee_name}}
 **Home:** {{home_name}} · License {{home_license}}
 **Orientation date:** {{orientation_date}} · **Conducted by:** {{conducted_by}}
 
@@ -342,9 +332,7 @@ By signing, the employee confirms they received this orientation, understood it,
       { key: "employee", label: "Employee", required: true },
       { key: "provider", label: "Provider", required: true },
     ],
-    body: `## Job description
-
-**Employee:** {{employee_name}}
+    body: `**Employee:** {{employee_name}}
 **Home:** {{home_name}}
 **Position:** {{position}} · **Start date:** {{start_date}}
 **Reports to:** {{reports_to}} · **Usual schedule:** {{schedule}}
@@ -399,9 +387,7 @@ I have read this job description, I understand what is expected of me, and I hav
       { key: "drills", label: "Drill schedule", type: "textarea", required: true },
     ],
     signers: [{ key: "provider", label: "Provider", required: true }],
-    body: `## Disaster and emergency preparedness plan
-
-**Home:** {{home_name}} · License {{home_license}}
+    body: `**Home:** {{home_name}} · License {{home_license}}
 **Address:** {{home_address}} · **Phone:** {{home_phone}}
 **Reviewed:** {{reviewed_date}} by {{reviewed_by}}
 

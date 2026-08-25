@@ -26,10 +26,22 @@ export function SignaturePad({
   submitLabel?: string;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const nameRef = useRef<HTMLInputElement>(null);
+  const consentRef = useRef<HTMLInputElement>(null);
   const [hasDrawing, setHasDrawing] = useState(false);
   const [imageData, setImageData] = useState("");
   const [agreed, setAgreed] = useState(false);
   const [name, setName] = useState(defaultName);
+
+  // The name and consent inputs are uncontrolled, and their state is read back
+  // from the DOM once on mount. A controlled input would be reset by hydration,
+  // silently discarding anything the signer typed before the JavaScript loaded
+  // — which on a family member's phone is a real possibility, and losing their
+  // input on the one screen that matters is the worst place for it.
+  useEffect(() => {
+    if (nameRef.current) setName(nameRef.current.value);
+    if (consentRef.current) setAgreed(consentRef.current.checked);
+  }, []);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -117,7 +129,8 @@ export function SignaturePad({
           id={`typedName-${signatureId ?? token}`}
           name="typedName"
           required
-          value={name}
+          ref={nameRef}
+          defaultValue={defaultName}
           onChange={(e) => setName(e.target.value)}
           className="input"
           autoComplete="name"
@@ -150,7 +163,7 @@ export function SignaturePad({
       <label className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700">
         <input
           type="checkbox"
-          checked={agreed}
+          ref={consentRef}
           onChange={(e) => setAgreed(e.target.checked)}
           className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
         />

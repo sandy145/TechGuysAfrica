@@ -25,9 +25,21 @@ function check(name, ok, detail = "") {
   console.log(`${ok ? "PASS" : "FAIL"}  ${name}${detail ? ` — ${detail}` : ""}`);
 }
 
+// Generous, because this also has to pass against `npm run dev`, where each
+// route and server action compiles on first hit.
+const TIMEOUT = Number(process.env.SMOKE_TIMEOUT_MS || 90000);
+
 const browser = await chromium.launch({ executablePath: EXE });
-const ctx = await browser.newContext({ baseURL: BASE });
-const page = await ctx.newPage();
+
+/** Every context gets the same patience, including the ones opened mid-run. */
+async function newPage(options = {}) {
+  const context = await browser.newContext({ baseURL: BASE, ...options });
+  context.setDefaultTimeout(TIMEOUT);
+  context.setDefaultNavigationTimeout(TIMEOUT);
+  return { context, page: await context.newPage() };
+}
+
+const { page } = await newPage();
 
 const pageErrors = [];
 page.on("pageerror", (e) => pageErrors.push(String(e)));
@@ -173,8 +185,7 @@ try {
 
   // ---- remote signing, in a clean context with no session ----
   if (linkMatch) {
-    const anon = await browser.newContext({ baseURL: BASE });
-    const anonPage = await anon.newPage();
+    const { context: anon, page: anonPage } = await newPage();
     await anonPage.goto(`/sign/${linkMatch[1]}`, { waitUntil: "domcontentloaded" });
     const signPage = await anonPage.locator("body").innerText();
     check("remote signer sees the document without an account", signPage.includes("Ana Reyes"));
@@ -262,8 +273,7 @@ try {
   );
 
   // ---- tenant isolation ----
-  const other = await browser.newContext({ baseURL: BASE });
-  const otherPage = await other.newPage();
+  const { context: other, page: otherPage } = await newPage();
   await otherPage.goto("/register", { waitUntil: "domcontentloaded" });
   await otherPage.fill("#name", "Second Provider");
   await otherPage.fill("#email", "second@example.com");

@@ -17,3 +17,6 @@ prisma/dev.db-journal
 prisma/*.db
 storage/
 !storage/.gitkeep
+
+# Screenshots produced by scripts/capture.mjs
+screens/

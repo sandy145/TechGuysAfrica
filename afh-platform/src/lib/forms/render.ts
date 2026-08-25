@@ -63,48 +63,81 @@ export function fillTokens(
  * Convert the filled template body into printable HTML.
  * Supported markers: `## Heading`, `### Subheading`, `- bullet`, `**bold**`,
  * `---` rule, and blank-line-separated paragraphs.
+ *
+ * Parsed line by line rather than by blank-line-delimited block, so a heading
+ * immediately followed by its content stays a heading and the content below it
+ * stays a paragraph. Grouping them would render an entire answer in heading
+ * style, and template authors — including providers editing their own forms —
+ * should not have to know about a blank-line rule to avoid that.
  */
 export function renderBody(filled: string): string {
-  const blocks = filled.replace(/\r\n/g, "\n").split(/\n{2,}/);
+  const lines = filled.replace(/\r\n/g, "\n").split("\n");
   const html: string[] = [];
 
-  for (const raw of blocks) {
-    const block = raw.trim();
-    if (!block) continue;
+  let paragraph: string[] = [];
+  let list: string[] = [];
 
-    if (block === "---") {
+  const flushParagraph = () => {
+    if (paragraph.length === 0) return;
+    html.push(
+      `<p class="mb-3 leading-relaxed">${paragraph.map((l) => inline(l)).join("<br />")}</p>`,
+    );
+    paragraph = [];
+  };
+
+  const flushList = () => {
+    if (list.length === 0) return;
+    const items = list.map((item) => `<li>${inline(item)}</li>`).join("");
+    html.push(`<ul class="mb-3 list-disc space-y-1 pl-6">${items}</ul>`);
+    list = [];
+  };
+
+  const flushAll = () => {
+    flushParagraph();
+    flushList();
+  };
+
+  for (const raw of lines) {
+    const line = raw.trim();
+
+    if (line === "") {
+      flushAll();
+      continue;
+    }
+
+    if (line === "---") {
+      flushAll();
       html.push('<hr class="my-4 border-slate-300" />');
       continue;
     }
 
-    const lines = block.split("\n");
-
-    if (lines.every((l) => l.trim().startsWith("- "))) {
-      const items = lines
-        .map((l) => `<li>${inline(l.trim().slice(2))}</li>`)
-        .join("");
-      html.push(`<ul class="list-disc pl-6 space-y-1">${items}</ul>`);
+    if (line.startsWith("- ")) {
+      flushParagraph();
+      list.push(line.slice(2));
       continue;
     }
 
-    if (block.startsWith("### ")) {
+    if (line.startsWith("### ")) {
+      flushAll();
       html.push(
-        `<h3 class="mt-5 mb-1 text-sm font-semibold uppercase tracking-wide text-slate-600">${inline(block.slice(4))}</h3>`,
-      );
-      continue;
-    }
-    if (block.startsWith("## ")) {
-      html.push(
-        `<h2 class="mt-6 mb-2 border-b border-slate-300 pb-1 text-base font-bold text-slate-900">${inline(block.slice(3))}</h2>`,
+        `<h3 class="mb-1 mt-5 text-sm font-semibold uppercase tracking-wide text-slate-600">${inline(line.slice(4))}</h3>`,
       );
       continue;
     }
 
-    html.push(
-      `<p class="mb-3 leading-relaxed">${lines.map((l) => inline(l)).join("<br />")}</p>`,
-    );
+    if (line.startsWith("## ")) {
+      flushAll();
+      html.push(
+        `<h2 class="mb-2 mt-6 border-b border-slate-300 pb-1 text-base font-bold text-slate-900">${inline(line.slice(3))}</h2>`,
+      );
+      continue;
+    }
+
+    flushList();
+    paragraph.push(line);
   }
 
+  flushAll();
   return html.join("\n");
 }
 
