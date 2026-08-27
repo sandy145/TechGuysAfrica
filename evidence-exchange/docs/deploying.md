@@ -15,6 +15,25 @@ Two things change for a serverless deployment, and both are already built:
   driver (`db:<id>`), so a deployment can move to an object store later
   without orphaning what it already holds.
 
+## Context for whoever runs this
+
+Established in the session that wrote this file:
+
+- **Supabase**: use the existing project named **`AFH`** (ref `kjcpsxvnswucwxnswigy`,
+  us-east-1, ACTIVE_HEALTHY). Do **not** create a new project. Its `public`
+  schema already holds the provider platform's tables, which is exactly why
+  this application lives in its own `evidence` schema.
+- **Vercel**: team **`AFH`** (slug `afh3`, hobby plan).
+- **Repository**: `sandy145/TechGuysAfrica`, branch
+  `claude/state-inspection-docs-platform-8q5c63`, root directory
+  `evidence-exchange`.
+
+Unrelated but worth knowing before that Supabase project holds anything real:
+all 16 tables in its `public` schema have row-level security disabled, so
+anyone with the anon key can read or write every row. They are empty today.
+The `evidence` schema is not exposed through Supabase's REST API at all, so
+this application's tables are not affected.
+
 ## 1. Create the database schema
 
 The pilot shares the existing Supabase project rather than adding a new one,
