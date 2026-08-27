@@ -21,6 +21,19 @@ The pilot shares the existing Supabase project rather than adding a new one,
 using a dedicated `evidence` Postgres schema so it cannot collide with the
 provider platform's tables in `public`.
 
+There are two ways to create it. **Use the first if you cannot reach Postgres
+from your own machine** — corporate and cloud networks routinely block 5432 and
+6543, and the build host does not have that problem.
+
+### Option A — let the first build create it
+
+Set `PRISMA_DB_PUSH=1` in the environment for one deploy. The build pushes the
+schema before compiling, then you remove the variable and redeploy. It never
+passes `--accept-data-loss`: if a push would drop a column the build fails
+instead, which is the behaviour you want on anything holding real data.
+
+### Option B — run the SQL yourself
+
 Run `prisma/deploy/001_init_evidence_schema.sql` against the project — paste it
 into the Supabase SQL editor, or:
 
@@ -67,9 +80,10 @@ APP_URL           https://<your-deployment-url>
 AGENCY_NAME       Residential Care Services
 AGENCY_PARENT     Department of Social and Health Services
 SEED_TOKEN        PeSv7dhL5UjXf-_63SsRQ-nv
+PRISMA_DB_PUSH    1      # only when using Option A; remove after the first deploy
 ```
 
-Notes on three of them:
+Notes on four of them:
 
 - **`DATABASE_URL`** is the *pooled* connection string from Supabase (Connect →
   Transaction pooler), with `&schema=evidence` appended. Serverless functions
@@ -80,6 +94,9 @@ Notes on three of them:
   25 MB.
 - **`SEED_TOKEN`** enables the demonstration data endpoint. **Delete this
   variable once seeding is done.** Without it the route returns 404.
+- **`PRISMA_DB_PUSH`** creates the schema during the build. Set it for the
+  first deploy only, then remove it — a schema push should be a decision, not
+  something that happens every time someone deploys.
 
 The two secrets above were generated for this deployment. Rotate them if they
 have been shared anywhere you would not put a password.

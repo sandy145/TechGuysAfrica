@@ -15,7 +15,7 @@
     "setup": "prisma generate && prisma db push && tsx prisma/seed.ts",
     "smoke": "node scripts/smoke.mjs",
     "pg:schema": "node scripts/make-pg-schema.mjs",
-    "vercel-build": "node scripts/make-pg-schema.mjs && prisma generate --schema=prisma/schema.postgres.prisma && next build",
+    "vercel-build": "node scripts/make-pg-schema.mjs && prisma generate --schema=prisma/schema.postgres.prisma && node scripts/db-push-if-requested.mjs && next build",
     "pg:ddl": "node scripts/make-pg-schema.mjs && prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.postgres.prisma --script"
   },
   "dependencies": {
