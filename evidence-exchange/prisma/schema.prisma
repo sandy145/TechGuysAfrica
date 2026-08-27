@@ -1,0 +1,569 @@
+// Evidence Exchange — data model for a state adult family home licensing
+// program's post-inspection evidence and determination workflow.
+//
+// The model is built around one claim: a citation decision is only as good as
+// the record of what the decision-maker actually looked at. So every finding
+// carries its evidence sources, every provider submission is bound to a
+// finding rather than to an inbox, every file records when it was first
+// opened by the agency, and every determination snapshots the evidence that
+// existed at the moment it was made.
+//
+// SQLite keeps local setup to zero steps. It has no native enum or array
+// support, so status/category columns are Strings constrained in
+// src/lib/constants.ts and list-shaped columns hold JSON text. Both survive a
+// move to Postgres unchanged — only the datasource block below has to change.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// The agency and its offices.
+// ---------------------------------------------------------------------------
+
+model Agency {
+  id        String @id @default(cuid())
+  name      String // e.g. "Residential Care Services"
+  parent    String? // e.g. "Department of Social and Health Services"
+  stateCode String  @default("WA")
+
+  // Program deadlines, configurable per state rather than hard-coded, because
+  // every state's rule chapter picks different numbers. Defaults below are
+  // Washington's: 10 working days for a plan of correction, 10 working days to
+  // request informal dispute resolution, up to 45 calendar days to correct.
+  evidenceWindowDays  Int @default(10) // business days after exit conference
+  pocDueDays          Int @default(10) // business days after SOD receipt
+  idrRequestDays      Int @default(10) // business days after SOD receipt
+  correctionDays      Int @default(45) // calendar days to complete correction
+
+  // A determination of CITATION normally requires at least this many
+  // independent evidence sources on the finding.
+  minEvidenceSources  Int @default(2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  offices Office[]
+  homes   LicensedHome[]
+  users   User[]
+}
+
+model Office {
+  id       String @id @default(cuid())
+  agencyId String
+  agency   Agency @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  name     String // e.g. "Region 2 — King County"
+  region   String?
+  email    String?
+  phone    String?
+
+  users User[]
+  homes LicensedHome[]
+
+  @@index([agencyId])
+}
+
+// ---------------------------------------------------------------------------
+// People. One table for agency staff and provider contacts; `role` decides
+// which half of the product a session can reach, and providerHomeId is the
+// tenancy boundary for everyone on the provider side.
+// ---------------------------------------------------------------------------
+
+model User {
+  id           String  @id @default(cuid())
+  email        String  @unique
+  name         String
+  // "AGENCY_ADMIN" | "SUPERVISOR" | "INSPECTOR" | "PROVIDER"
+  role         String  @default("INSPECTOR")
+  title        String?
+  phone        String?
+  passwordHash String? // null until an invited user sets a password
+
+  agencyId String?
+  agency   Agency? @relation(fields: [agencyId], references: [id], onDelete: SetNull)
+  officeId String?
+  office   Office? @relation(fields: [officeId], references: [id], onDelete: SetNull)
+
+  // Set for role = PROVIDER. Every provider-side query filters on this.
+  providerHomeId String?
+  providerHome   LicensedHome? @relation("HomeContacts", fields: [providerHomeId], references: [id], onDelete: Cascade)
+
+  // Invitation flow: the inspector creates the account, the provider sets the
+  // password from a tokenized link. This is the "I will create an account for
+  // you" step of the process.
+  inviteToken     String?   @unique
+  inviteExpiresAt DateTime?
+  invitedById     String?
+  invitedBy       User?     @relation("Invitations", fields: [invitedById], references: [id], onDelete: SetNull)
+  invitees        User[]    @relation("Invitations")
+
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  lastLoginAt DateTime?
+
+  ledInspections     Inspection[]     @relation("LeadInspector")
+  createdFindings    Finding[]        @relation("FindingAuthor")
+  determinations     Determination[]  @relation("DecidedBy")
+  approvals          Determination[]  @relation("ApprovedBy")
+  submissions        Submission[]     @relation("SubmittedBy")
+  reviewedSubmissions Submission[]    @relation("ReviewedBy")
+  evidenceRequests   EvidenceRequest[] @relation("RequestedBy")
+  notes              FindingNote[]
+  auditEvents        AuditEvent[]
+  plansOfCorrection  PlanOfCorrection[] @relation("PocSubmittedBy")
+  idrRequests        IdrRequest[]       @relation("IdrRequestedBy")
+
+  @@index([role])
+  @@index([providerHomeId])
+  @@index([officeId])
+}
+
+// ---------------------------------------------------------------------------
+// The regulated entity.
+// ---------------------------------------------------------------------------
+
+model LicensedHome {
+  id            String @id @default(cuid())
+  agencyId      String
+  agency        Agency @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  officeId      String?
+  office        Office? @relation(fields: [officeId], references: [id], onDelete: SetNull)
+
+  licenseNumber String @unique
+  name          String
+  providerName  String  // licensee of record
+  addressLine1  String?
+  city          String?
+  county        String?
+  zip           String?
+  phone         String?
+  email         String?
+
+  bedCapacity   Int     @default(6)
+  residentCount Int     @default(0)
+  // JSON array: "DEMENTIA" | "MENTAL_HEALTH" | "DEVELOPMENTAL_DISABILITIES"
+  specialties   String  @default("[]")
+  licensedAt    DateTime?
+  // "ACTIVE" | "PROVISIONAL" | "SUSPENDED" | "CLOSED"
+  status        String  @default("ACTIVE")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  contacts    User[]       @relation("HomeContacts")
+  inspections Inspection[]
+
+  @@index([agencyId])
+  @@index([county])
+}
+
+// ---------------------------------------------------------------------------
+// An inspection and its findings.
+// ---------------------------------------------------------------------------
+
+model Inspection {
+  id     String @id @default(cuid())
+  homeId String
+  home   LicensedHome @relation(fields: [homeId], references: [id], onDelete: Cascade)
+
+  // "FULL" | "INITIAL" | "COMPLAINT" | "FOLLOW_UP" | "CHANGE_OF_OWNERSHIP" | "MONITORING"
+  type String @default("FULL")
+  // Agency-assigned survey number, printed on the statement of deficiencies.
+  surveyNumber String? @unique
+
+  leadInspectorId String?
+  leadInspector   User?   @relation("LeadInspector", fields: [leadInspectorId], references: [id], onDelete: SetNull)
+
+  // "PLANNED" | "ONSITE" | "EVIDENCE_OPEN" | "IN_REVIEW" | "SOD_ISSUED" | "POC_REVIEW" | "CLOSED"
+  //
+  // EVIDENCE_OPEN is the state this whole product exists for: the exit
+  // conference has happened, preliminary findings are shared with the
+  // provider, and the clock for submitting documentation is running.
+  status String @default("PLANNED")
+
+  enteredAt        DateTime?
+  exitConferenceAt DateTime?
+  // Deadline for provider evidence, computed in business days from the exit
+  // conference. Extendable for good cause; extensions are audited.
+  evidenceDueAt    DateTime?
+  evidenceExtendedReason String?
+
+  sodIssuedAt      DateTime?
+  sodAcknowledgedAt DateTime? // provider confirmed receipt; starts POC/IDR clocks
+  closedAt         DateTime?
+
+  scopeNote String? // what the inspection covered
+  summary   String? // narrative printed on the statement of deficiencies
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  findings    Finding[]
+  idrRequests IdrRequest[]
+  auditEvents AuditEvent[]
+
+  @@index([homeId, status])
+  @@index([leadInspectorId])
+  @@index([evidenceDueAt])
+}
+
+// A single alleged failed provider practice. This is the unit of work for
+// everything downstream: evidence is attached to it, the provider responds to
+// it, and exactly one determination closes it.
+model Finding {
+  id           String     @id @default(cuid())
+  inspectionId String
+  inspection   Inspection @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
+
+  // Stable label used in conversation and on the printed SOD, e.g. "F-03".
+  tag String
+
+  wacCite         String  // e.g. "WAC 388-76-10375"
+  requirementText String  // what the rule requires
+  practiceText    String  // what the inspector observed that fell short
+
+  // Scope/severity grid, mirroring how residential surveys are scored.
+  // "ISOLATED" | "PATTERN" | "WIDESPREAD"
+  scope String @default("ISOLATED")
+  // "NO_HARM" | "POTENTIAL_HARM" | "ACTUAL_HARM" | "IMMEDIATE_JEOPARDY"
+  harm  String @default("POTENTIAL_HARM")
+
+  // "DRAFT" — inspector working, not visible to the provider
+  // "PENDING_EVIDENCE" — shared with the provider, clock running
+  // "EVIDENCE_RECEIVED" — provider responded, awaiting agency review
+  // "DETERMINED" — a determination exists
+  // "WITHDRAWN" — retracted before determination
+  status String @default("DRAFT")
+
+  // Per-finding override of the inspection-level evidence deadline.
+  evidenceDueAt DateTime?
+
+  createdById String?
+  createdBy   User?   @relation("FindingAuthor", fields: [createdById], references: [id], onDelete: SetNull)
+  sharedAt    DateTime? // moment the provider could first see it
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  sources          EvidenceSource[]
+  evidenceRequests EvidenceRequest[]
+  submissions      Submission[]
+  notes            FindingNote[]
+  determination    Determination?
+  citation         Citation?
+
+  @@unique([inspectionId, tag])
+  @@index([inspectionId, status])
+  @@index([status])
+}
+
+// One of the independent sources supporting a finding — observation,
+// interview, or record review. Programs commonly require two or more before a
+// failed practice may be cited; src/lib/workflow.ts enforces that.
+model EvidenceSource {
+  id        String  @id @default(cuid())
+  findingId String
+  finding   Finding @relation(fields: [findingId], references: [id], onDelete: Cascade)
+
+  // "OBSERVATION" | "INTERVIEW" | "RECORD_REVIEW" | "PHOTO" | "DOCUMENT" | "OTHER"
+  kind       String
+  detail     String
+  gatheredAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([findingId])
+}
+
+// What the agency is asking the provider to produce for a finding. This
+// replaces "reply to this email with the training file" — the ask is a record
+// with a deadline, and the answer lands against the ask.
+model EvidenceRequest {
+  id        String  @id @default(cuid())
+  findingId String
+  finding   Finding @relation(fields: [findingId], references: [id], onDelete: Cascade)
+
+  prompt String // "Provide the CPR card in effect on the date of survey"
+  dueAt  DateTime?
+  // "OPEN" | "ANSWERED" | "CLOSED"
+  status String @default("OPEN")
+
+  requestedById String?
+  requestedBy   User?   @relation("RequestedBy", fields: [requestedById], references: [id], onDelete: SetNull)
+  createdAt     DateTime @default(now())
+
+  submissions Submission[]
+
+  @@index([findingId, status])
+}
+
+// A provider's response: a note plus zero or more files, always bound to a
+// finding. `reviewedAt` is the field the whole product turns on — an agency
+// user has to open a submission before the finding can be cited.
+model Submission {
+  id        String  @id @default(cuid())
+  findingId String
+  finding   Finding @relation(fields: [findingId], references: [id], onDelete: Cascade)
+
+  evidenceRequestId String?
+  evidenceRequest   EvidenceRequest? @relation(fields: [evidenceRequestId], references: [id], onDelete: SetNull)
+
+  note        String?
+  submittedById String?
+  submittedBy   User?  @relation("SubmittedBy", fields: [submittedById], references: [id], onDelete: SetNull)
+  submittedAt   DateTime @default(now())
+  // True when the submission arrived after the deadline. Recorded rather than
+  // rejected: lateness is a fact for the decision-maker, not a reason to
+  // silently drop evidence.
+  isLate        Boolean  @default(false)
+
+  reviewedAt   DateTime?
+  reviewedById String?
+  reviewedBy   User?     @relation("ReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewNote   String?
+
+  files SubmissionFile[]
+
+  @@index([findingId, reviewedAt])
+  @@index([submittedAt])
+}
+
+model SubmissionFile {
+  id           String     @id @default(cuid())
+  submissionId String
+  submission   Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+
+  fileName   String
+  storageKey String
+  mimeType   String
+  sizeBytes  Int
+  // Content digest, so a provider can prove the file the agency holds is the
+  // file they sent, and the agency can prove it was not swapped afterwards.
+  sha256     String
+
+  // First time an agency user actually retrieved the bytes.
+  firstOpenedAt   DateTime?
+  firstOpenedById String?
+  openCount       Int      @default(0)
+
+  createdAt DateTime @default(now())
+
+  @@index([submissionId])
+}
+
+// Threaded discussion on a finding. INTERNAL notes are agency-only;
+// SHARED notes are visible to the provider and are how a question gets asked
+// without leaving the record.
+model FindingNote {
+  id        String  @id @default(cuid())
+  findingId String
+  finding   Finding @relation(fields: [findingId], references: [id], onDelete: Cascade)
+
+  authorId String?
+  author   User?   @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  // "INTERNAL" | "SHARED"
+  visibility String @default("SHARED")
+  body       String
+
+  createdAt DateTime @default(now())
+
+  @@index([findingId, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Determinations and what follows them.
+// ---------------------------------------------------------------------------
+
+// Exactly one per finding. Outcome CITATION creates a Citation row.
+model Determination {
+  id        String  @id @default(cuid())
+  findingId String  @unique
+  finding   Finding @relation(fields: [findingId], references: [id], onDelete: Cascade)
+
+  // "NO_DEFICIENCY"  — the evidence resolved it; nothing is cited
+  // "CONSULTATION"   — technical assistance recorded, no citation
+  // "CITATION"       — cited on the statement of deficiencies
+  outcome String
+
+  rationale String // required, free text — why the evidence led here
+
+  // Snapshot of exactly what was in front of the decision-maker: JSON array of
+  // { submissionId, fileIds, submittedAt, reviewedAt }. Written at decision
+  // time so a later upload cannot rewrite the basis of a past decision.
+  evidenceConsideredJson String @default("[]")
+  // True when the provider submitted nothing before the deadline. Recorded
+  // explicitly so "cited because nothing came in" is distinguishable from
+  // "cited despite what came in".
+  noProviderResponse Boolean @default(false)
+
+  // Set when a determination was recorded against the agency's own guardrails
+  // (fewer than the required evidence sources, or unreviewed evidence present)
+  // and a supervisor signed off anyway.
+  overrideReason String?
+
+  decidedById String?
+  decidedBy   User?    @relation("DecidedBy", fields: [decidedById], references: [id], onDelete: SetNull)
+  decidedAt   DateTime @default(now())
+
+  // Immediate jeopardy determinations require a second signature.
+  approvedById String?
+  approvedBy   User?     @relation("ApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+  approvedAt   DateTime?
+
+  @@index([outcome])
+}
+
+model Citation {
+  id        String  @id @default(cuid())
+  findingId String  @unique
+  finding   Finding @relation(fields: [findingId], references: [id], onDelete: Cascade)
+
+  pocDueAt        DateTime?
+  correctionDueAt DateTime?
+
+  // "PENDING_POC" | "POC_SUBMITTED" | "POC_ACCEPTED" | "POC_REJECTED"
+  // | "CORRECTION_VERIFIED" | "UNCORRECTED"
+  status String @default("PENDING_POC")
+
+  // Enforcement recorded against the citation, JSON array of
+  // { remedy, amount, imposedAt, note }. Remedies are program-specific.
+  enforcementJson String @default("[]")
+
+  verifiedAt   DateTime?
+  verifiedNote String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  plansOfCorrection PlanOfCorrection[]
+}
+
+model PlanOfCorrection {
+  id         String   @id @default(cuid())
+  citationId String
+  citation   Citation @relation(fields: [citationId], references: [id], onDelete: Cascade)
+
+  // The four questions a plan of correction has to answer.
+  howCorrected      String
+  systemicMeasures  String
+  responsiblePerson String
+  completionDate    DateTime?
+
+  submittedById String?
+  submittedBy   User?    @relation("PocSubmittedBy", fields: [submittedById], references: [id], onDelete: SetNull)
+  submittedAt   DateTime @default(now())
+  isLate        Boolean  @default(false)
+
+  // "SUBMITTED" | "ACCEPTED" | "REJECTED"
+  status       String    @default("SUBMITTED")
+  reviewNote   String?
+  reviewedAt   DateTime?
+  reviewedById String?
+
+  @@index([citationId])
+}
+
+// Informal dispute resolution. Modeled because it is the appeal path a
+// provider reaches for when they believe evidence was missed — the exact
+// failure this system is meant to prevent.
+model IdrRequest {
+  id           String     @id @default(cuid())
+  inspectionId String
+  inspection   Inspection @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
+
+  // "TRADITIONAL" | "PANEL" — panel review is commonly limited to a small
+  // number of disputed items; the limit is enforced in src/lib/workflow.ts.
+  type String @default("TRADITIONAL")
+  // JSON array of Finding ids under dispute.
+  findingIdsJson String @default("[]")
+  statement      String
+
+  requestedById String?
+  requestedBy   User?    @relation("IdrRequestedBy", fields: [requestedById], references: [id], onDelete: SetNull)
+  requestedAt   DateTime @default(now())
+  isLate        Boolean  @default(false)
+
+  // "REQUESTED" | "SCHEDULED" | "HELD" | "DECIDED" | "WITHDRAWN"
+  status    String @default("REQUESTED")
+  scheduledAt DateTime?
+  // "UPHELD" | "MODIFIED" | "DELETED" | "SPLIT"
+  outcome     String?
+  outcomeNote String?
+  decidedAt   DateTime?
+
+  @@index([inspectionId, status])
+}
+
+// ---------------------------------------------------------------------------
+// Record-keeping: audit trail and outbound mail.
+// ---------------------------------------------------------------------------
+
+// Append-only. Nothing in this table is ever updated or deleted; a licensing
+// decision that ends up in an administrative hearing is only defensible if the
+// history of who saw what, when, is intact.
+model AuditEvent {
+  id String @id @default(cuid())
+
+  actorId   String?
+  actor     User?   @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  actorRole String?
+  actorName String? // denormalized: the log has to survive account deletion
+
+  // Verb, e.g. "FINDING_SHARED", "SUBMISSION_RECEIVED", "FILE_OPENED",
+  // "DETERMINATION_RECORDED". See src/lib/constants.ts.
+  action     String
+  entityType String
+  entityId   String
+  // Denormalized for the per-inspection activity timeline.
+  inspectionId String?
+  inspection   Inspection? @relation(fields: [inspectionId], references: [id], onDelete: SetNull)
+
+  summary  String
+  metaJson String  @default("{}")
+  ip       String?
+
+  createdAt DateTime @default(now())
+
+  @@index([inspectionId, createdAt])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}
+
+model OutboxMessage {
+  id        String  @id @default(cuid())
+  toEmail   String
+  subject   String
+  bodyHtml  String
+  bodyText  String?
+  // "INVITATION" | "FINDINGS_SHARED" | "REMINDER" | "SUBMISSION_RECEIPT"
+  // | "DETERMINATION" | "SOD_ISSUED" | "OTHER"
+  kind      String  @default("OTHER")
+  // "QUEUED" | "SENT" | "FAILED"
+  status    String  @default("QUEUED")
+  error     String?
+  sentAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([status, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Blob storage for deployments with no writable filesystem.
+// ---------------------------------------------------------------------------
+
+// When STORAGE_DRIVER=database, uploaded evidence lives here instead of on
+// disk. Serverless hosts have no durable filesystem, and standing up an object
+// store is a decision for the agency's own infrastructure rather than
+// something a pilot should force. The storage adapter is the only code that
+// touches this table.
+model FileBlob {
+  id        String   @id @default(cuid())
+  data      Bytes
+  mimeType  String
+  sizeBytes Int
+  createdAt DateTime @default(now())
+}

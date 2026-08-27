@@ -1,3 +1,22 @@
+# TechGuysAfrica
+
+This repository holds two working applications alongside the original static site:
+
+- **`evidence-exchange/`** — a post-inspection evidence and determination system
+  built for a **state** adult family home licensing programme. Findings, provider
+  documentation, and citation/consultation decisions in one record, with a
+  citation blocked while the provider's evidence sits unread. See
+  [`evidence-exchange/README.md`](evidence-exchange/README.md) and the process
+  research in
+  [`evidence-exchange/docs/inspection-process.md`](evidence-exchange/docs/inspection-process.md).
+- **`afh-platform/`** — a compliance platform for **providers**: document vault,
+  rules engine, form generation, and regulatory updates. See
+  [`afh-platform/README.md`](afh-platform/README.md).
+
+The static portfolio site below is the repository's original content.
+
+---
+
 # [Start Bootstrap](http://startbootstrap.com/) - [3 Col Portfolio](http://startbootstrap.com/template-overviews/3-col-portfolio/)
 
 [3 Col Portfolio](http://startbootstrap.com/template-overviews/3-col-portfolio/) is a three column portfolio template for [Bootstrap](http://getbootstrap.com/) created by [Start Bootstrap](http://startbootstrap.com/).

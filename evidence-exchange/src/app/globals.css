@@ -1,0 +1,29 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  @apply bg-slate-50 text-ink antialiased;
+}
+
+/* The printed statement of deficiencies has to look like a document, not a
+   screenshot of an app: no navigation, no interactive chrome, black on white. */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: #ffffff;
+  }
+  .print-page {
+    max-width: none;
+    padding: 0;
+  }
+  a[href]::after {
+    content: "";
+  }
+}
