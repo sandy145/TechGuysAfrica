@@ -13,7 +13,10 @@
     "db:seed": "tsx prisma/seed.ts",
     "db:reset": "rm -f prisma/dev.db && prisma db push && tsx prisma/seed.ts",
     "setup": "prisma generate && prisma db push && tsx prisma/seed.ts",
-    "smoke": "node scripts/smoke.mjs"
+    "smoke": "node scripts/smoke.mjs",
+    "pg:schema": "node scripts/make-pg-schema.mjs",
+    "vercel-build": "node scripts/make-pg-schema.mjs && prisma generate --schema=prisma/schema.postgres.prisma && next build",
+    "pg:ddl": "node scripts/make-pg-schema.mjs && prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.postgres.prisma --script"
   },
   "dependencies": {
     "@prisma/client": "^6.1.0",

@@ -77,6 +77,13 @@ npm run smoke
 24 checks covering the upload → queue → blocked citation → open → review →
 determination path, tenancy isolation, and the printed packet.
 
+## Deploying
+
+`docs/deploying.md` covers the hosted pilot: Postgres instead of SQLite,
+evidence bytes in a `FileBlob` row instead of on disk, and the one-time seed
+endpoint. Both changes are driven by environment variables — the same build runs
+either way.
+
 ## Architecture
 
 Next.js App Router, TypeScript, Prisma, Tailwind. No client-side state library,
@@ -96,10 +103,13 @@ src/app/sod/[id]/       printable statement of deficiencies + evidence index
 ```
 
 - **Sessions** are HMAC-signed cookies with a 12-hour life; passwords are scrypt.
-- **Storage** is the local filesystem behind four functions. Point them at S3 or
-  the state's object store and nothing else changes.
-- **Database** is SQLite for zero-setup evaluation. The schema is
-  Postgres-compatible; change the `datasource` block and the `DATABASE_URL`.
+- **Storage** is the local filesystem behind three functions, or Postgres rows
+  when `STORAGE_DRIVER=database` (for hosts with no durable disk). Keys carry
+  their own driver, so a store can be swapped without orphaning existing files.
+  Adding S3 means one more branch in each function.
+- **Database** is SQLite for zero-setup evaluation and Postgres when deployed.
+  `prisma/schema.prisma` is canonical; `npm run pg:schema` generates the
+  Postgres flavour so the two cannot drift.
 - **Mail** is written to an outbox table rather than sent, so nothing claims a
   delivery that did not happen. Notifications deliberately carry no case
   documents — email is a doorbell, and the record stays behind the sign-in.
