@@ -15,13 +15,25 @@
 
 import { chromium } from "playwright";
 import fs from "node:fs/promises";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 
 const BASE = process.env.SMOKE_BASE_URL || "http://127.0.0.1:3131";
-const EXE = process.env.SMOKE_CHROMIUM || "/opt/pw-browsers/chromium";
 const TIMEOUT = Number(process.env.SMOKE_TIMEOUT_MS || 90000);
 const PASSWORD = "Exchange2026!";
+
+/**
+ * Browser resolution, in order: an explicit SMOKE_CHROMIUM, then a
+ * pre-provisioned browser if one happens to be on this machine, then
+ * Playwright's own download. CI has the third; a sandbox usually has the
+ * second; a developer debugging a specific build passes the first.
+ */
+function browserPath() {
+  if (process.env.SMOKE_CHROMIUM) return process.env.SMOKE_CHROMIUM;
+  const provisioned = "/opt/pw-browsers/chromium";
+  return existsSync(provisioned) ? provisioned : undefined;
+}
 
 const results = [];
 function check(name, ok, detail = "") {
@@ -29,7 +41,8 @@ function check(name, ok, detail = "") {
   console.log(`${ok ? "PASS" : "FAIL"}  ${name}${detail ? ` — ${detail}` : ""}`);
 }
 
-const browser = await chromium.launch({ executablePath: EXE });
+const executablePath = browserPath();
+const browser = await chromium.launch(executablePath ? { executablePath } : {});
 
 async function session(email) {
   const context = await browser.newContext({ baseURL: BASE });

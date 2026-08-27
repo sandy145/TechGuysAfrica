@@ -1,0 +1,101 @@
+# CI for the Evidence Exchange application.
+#
+# The suite that matters here is the end-to-end one: the product's central
+# promise is that a citation cannot be recorded against unread evidence, and
+# that is only meaningfully verified by driving a browser through the refusal.
+# So this builds the app, starts it, and runs the full smoke suite against a
+# seeded database.
+
+name: Evidence Exchange
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "evidence-exchange/**"
+      - ".github/workflows/evidence-exchange.yml"
+  pull_request:
+    paths:
+      - "evidence-exchange/**"
+      - ".github/workflows/evidence-exchange.yml"
+
+# A new push makes an in-flight run irrelevant; don't burn minutes finishing it.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: evidence-exchange
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      DATABASE_URL: "file:./dev.db"
+      SESSION_SECRET: "ci-only-secret-not-used-anywhere-real"
+      STORAGE_DIR: "./storage"
+      APP_URL: "http://127.0.0.1:3131"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: evidence-exchange/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      # Cached separately from node_modules: the browser is ~150 MB and changes
+      # only when the Playwright version does.
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('evidence-exchange/package-lock.json') }}
+
+      - name: Install Chromium
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+
+      - name: Install system dependencies for cached Chromium
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
+
+      - name: Create and seed the database
+        run: npm run db:reset
+
+      # Polled with curl rather than a helper package: one less dependency
+      # fetched at CI time, and the failure message says what it was waiting for.
+      - name: Start the application
+        run: |
+          npx next start -p 3131 > /tmp/server.log 2>&1 &
+          for i in $(seq 1 60); do
+            if curl -sf -o /dev/null http://127.0.0.1:3131/login; then
+              echo "Server is up after ${i}s."
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Server did not answer /login within 60s."
+          cat /tmp/server.log
+          exit 1
+
+      - name: Smoke test
+        run: npm run smoke
+
+      - name: Server log on failure
+        if: failure()
+        run: cat /tmp/server.log
