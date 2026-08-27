@@ -50,6 +50,12 @@ Point it at this repository with:
 | Build command | `npm run vercel-build` |
 | Install command | `npm install` |
 
+**The build command matters.** `npm run build` regenerates the *SQLite* client
+and the deployment will fail at the first query with "the URL must start with
+the protocol `file:`". `npm run vercel-build` generates the Postgres client
+first. This is a real failure mode, not a theoretical one — it is what happened
+on the first verification run.
+
 ## 3. Environment variables
 
 ```
