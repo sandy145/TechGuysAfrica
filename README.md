@@ -1,3 +1,5 @@
+> **Projects in this repo:** [`afh-platform/`](afh-platform) (adult family home compliance) · [`ghana-gov-ai/`](ghana-gov-ai) (AI-powered Ghana.gov test build)
+
 # [Start Bootstrap](http://startbootstrap.com/) - [3 Col Portfolio](http://startbootstrap.com/template-overviews/3-col-portfolio/)
 
 [3 Col Portfolio](http://startbootstrap.com/template-overviews/3-col-portfolio/) is a three column portfolio template for [Bootstrap](http://getbootstrap.com/) created by [Start Bootstrap](http://startbootstrap.com/).

@@ -1,0 +1,23 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  @apply bg-white text-ink antialiased;
+}
+
+.flag-stripe {
+  background: linear-gradient(to right, #CE1126 0 33.33%, #FCD116 33.33% 66.66%, #006B3F 66.66% 100%);
+}
+
+.prose-answer p + p,
+.prose-answer p + ol,
+.prose-answer ol + p,
+.prose-answer p + ul,
+.prose-answer ul + p {
+  margin-top: 0.75rem;
+}
